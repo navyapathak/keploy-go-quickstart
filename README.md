@@ -9,7 +9,7 @@ A production-grade developer documentation experience and hands-on guide for int
 ## Live Links
 
 *   **Live Documentation Site**: [https://keploy-flame.vercel.app](https://keploy-flame.vercel.app)
-*   **Source Code Repository**: [https://github.com/dakshdureja/keploy-go-quickstart](https://github.com/dakshdureja/keploy-go-quickstart)
+*   **Source Code Repository**: [https://github.com/Dakshdureja33/keploy-go-quickstart](https://github.com/Dakshdureja33/keploy-go-quickstart)
 
 ---
 
@@ -94,7 +94,7 @@ keploy/
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone https://github.com/dakshdureja/keploy-go-quickstart.git
+git clone https://github.com/Dakshdureja33/keploy-go-quickstart.git
 cd keploy-go-quickstart
 npm install
 ```
