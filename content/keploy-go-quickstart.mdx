@@ -1,0 +1,390 @@
+# Getting Started with Keploy and Go
+
+A hands-on, zero-fluff guide to recording real HTTP traffic and replaying deterministic API tests without hand-writing a single mock.
+
+---
+
+## What You'll Build
+
+In this tutorial, you will integrate [Keploy](https://keploy.io) into a real-world Go web application—a **URL shortener REST API** powered by the **Gin** HTTP framework and **MongoDB**.
+
+Rather than spending hours writing unit tests, mocking database queries with `gomock`, or maintaining flaky test fixtures, you will:
+
+1. Spin up the application and its backing MongoDB database.
+2. Run **Keploy in Record Mode** to observe live incoming HTTP requests and outgoing MongoDB wire commands.
+3. Execute real API requests using `curl` to create and redirect shortened URLs.
+4. Watch Keploy automatically generate self-contained test cases and database mock cassettes in YAML.
+5. Shut down the MongoDB database completely.
+6. Run **Keploy in Test Mode** to replay the exact test cases offline against the Go application—with Keploy safely serving the recorded database responses at the network layer.
+
+<WorkflowDiagram />
+
+<Callout type="tip" title="No Code Modifications Required">
+Unlike traditional mocking libraries that require you to inject interfaces into your Go structs, Keploy works at the network transport layer. Your application source code remains 100% production-ready without any test shims.
+</Callout>
+
+---
+
+## What is Keploy?
+
+Testing modern microservices is notoriously difficult because services rarely exist in isolation. A typical Go API talks to databases (Postgres, MongoDB, Redis), message queues (Kafka, RabbitMQ), and third-party HTTP APIs (Stripe, Twilio, Auth0).
+
+Traditionally, developers face an unpleasant trade-off:
+
+*   **Unit Tests with Hand-Written Mocks:** Fast to run, but time-consuming to write and maintain. If the real MongoDB query behavior drifts from your mock, your unit tests pass while your production service breaks.
+*   **End-to-End Integration Tests:** High confidence, but slow, brittle, and require complex Docker Compose or test environment orchestration.
+
+### The Keploy Paradigm
+
+Keploy operates as a **zero-code testing platform** that captures real network traffic:
+
+*   **Ingress Interception:** Keploy captures incoming HTTP/gRPC requests sent to your application.
+*   **Egress Interception:** When your Go application makes outgoing calls to MongoDB, Redis, or external APIs, Keploy intercepts those database wire packets and serializes the exact requests and responses into deterministic YAML files.
+*   **Zero-Dependency Replay:** During test execution, Keploy boots your Go application, sends the recorded ingress requests, and intercepts any outgoing network calls—instantly answering them with the recorded responses.
+
+Your application runs normally, believing it is communicating with a live MongoDB instance, while executing entirely offline in a fraction of a second.
+
+---
+
+## Prerequisites
+
+Before starting, ensure you have the following installed on your machine:
+
+1.  **Docker Desktop (v4.25+)**: Keploy uses containerized networking to intercept traffic without requiring root kernel privileges on macOS and Windows.
+2.  **cURL**: Standard command-line tool for dispatching HTTP requests.
+3.  **Git**: For cloning the sample application.
+4.  **Keploy CLI**: The command-line tool that orchestrates recording and testing.
+
+<Callout type="info" title="macOS & Apple Silicon Compatibility">
+On macOS, Keploy leverages Docker containers to route traffic cleanly through a virtual bridge network (`keploy-network`). Make sure Docker Desktop is running before proceeding to Step 1.
+</Callout>
+
+---
+
+## Step 1 — Get the Go Sample Application
+
+We will use Keploy's official Go URL shortener sample. It uses **Gin** for routing and the official **Go MongoDB driver**.
+
+<Step 
+  number="01" 
+  title="Clone the sample repository"
+  badge="Setup"
+  command="git clone https://github.com/keploy/samples-go.git && cd samples-go/gin-mongo"
+  rationale="The sample repository contains the complete URL shortener source code, Dockerfile, and dependency configurations."
+  expectedOutput="Cloning into 'samples-go'...
+remote: Enumerating objects... done.
+Checking out files: 100% done."
+/>
+
+### Anatomy of the Application
+
+Let's inspect what makes up this service:
+
+*   `main.go`: Initializes the Gin router, connects to `mongoDb:27017`, and registers three endpoints:
+    *   `POST /url`: Accepts a JSON payload `{"url": "https://..."}`, generates an 8-character unique alphanumeric hash, records a UNIX timestamp (`ts`), and saves the document to MongoDB.
+    *   `GET /:param`: Looks up the shortened slug in MongoDB and returns an HTTP `303 See Other` redirect to the destination URL.
+    *   `GET /verify-email`: Utility verification endpoint.
+*   `Dockerfile`: Multi-stage build compiling the Go application with `CGO_ENABLED=0` and running it inside a secure, lightweight Alpine container with `dumb-init`.
+
+---
+
+## Step 2 — Install the Keploy CLI
+
+Next, install the latest Keploy CLI on your workstation.
+
+<Step 
+  number="02" 
+  title="Install Keploy CLI"
+  badge="Installation"
+  command="curl --silent -O -L https://keploy.io/install.sh && bash install.sh"
+  rationale="The install script downloads the pre-built Keploy CLI binary tailored for your architecture (Darwin arm64/x86_64 or Linux)."
+  expectedOutput="Downloading Keploy binary...
+Moving binary to /usr/local/bin or ~/.keploy/bin
+Keploy CLI installed successfully! Version: 3.8.58"
+/>
+
+Verify your installation:
+
+```bash
+keploy --version
+# Output: Keploy: 3.8.58
+```
+
+---
+
+## Step 3 — Create Network and Start MongoDB
+
+Because Keploy intercepts traffic across containers, both our Go application and MongoDB must live on a shared Docker bridge network named `keploy-network`.
+
+<Step 
+  number="03" 
+  title="Create the Docker network and launch MongoDB"
+  badge="Infrastructure"
+  command="docker network create keploy-network 2>/dev/null || true
+docker run -p 27017:27017 -d --network keploy-network --name mongoDb mongo"
+  rationale="Spinning up a real MongoDB instance gives our Go application a live database to talk to during the record phase."
+  expectedOutput="cb3f44eee755490a... (Container ID)
+mongoDb is up and listening on port 27017"
+/>
+
+Verify that MongoDB is healthy and accepting connections:
+
+```bash
+docker exec mongoDb mongosh --eval &quot;db.adminCommand('ping')&quot;
+# Expected output: { ok: 1 }
+```
+
+Now, build the Go application's Docker image:
+
+```bash
+docker build -t gin-app:1.0 .
+```
+
+---
+
+## Step 4 — Record Your First Test Cases
+
+Here is where the magic begins. We will launch our application container wrapped by `keploy record`.
+
+<Step 
+  number="04" 
+  title="Start Keploy in Record Mode"
+  badge="Record"
+  command="keploy record -c &quot;docker run -p 8080:8080 --name MongoApp --rm --network keploy-network gin-app:1.0&quot; --container-name &quot;MongoApp&quot; --build-delay 15"
+  rationale="Keploy hooks into the container's network namespace. It monitors incoming HTTP requests on port 8080 and outgoing BSON wire calls to mongoDb:27017."
+  expectedOutput="🐰 Keploy: Starting Keploy in record mode...
+🐰 Keploy: Watching container 'MongoApp' on network 'keploy-network'...
+[GIN-debug] Listening and serving HTTP on :8080"
+/>
+
+<Callout type="info" title="What is --build-delay?">
+`--build-delay 15` gives the container 15 seconds to finish initialization (connecting to MongoDB and binding port 8080) before Keploy marks the proxy ready to record.
+</Callout>
+
+### Generate Real API Traffic
+
+With the recorder running in your primary terminal, open a second terminal tab and dispatch real API requests.
+
+#### 1. Shorten a URL (`POST /url`)
+
+```bash
+curl --request POST \
+  --url http://localhost:8080/url \
+  --header 'content-type: application/json' \
+  --data '{"url": "https://google.com"}'
+```
+
+**Expected JSON Response:**
+
+```json
+{
+  "ts": 1718943885198315028,
+  "url": "http://localhost:8080/Lhr4BWAi"
+}
+```
+
+Notice the generated slug (`Lhr4BWAi`) and the nano-precision timestamp (`ts`).
+
+#### 2. Query the Shortened URL (`GET /:param`)
+
+```bash
+curl -i http://localhost:8080/Lhr4BWAi
+```
+
+**Expected HTTP Response:**
+
+```http
+HTTP/1.1 303 See Other
+Content-Type: text/html; charset=utf-8
+Location: https://google.com
+Date: Fri, 21 Jun 2024 04:24:57 GMT
+Content-Length: 45
+
+<a href="https://google.com">See Other</a>.
+```
+
+### Stop the Recording
+
+Return to your primary terminal running `keploy record` and press **`Ctrl + C`**.
+
+Keploy flushes its memory buffers and writes the recorded artifacts into a newly generated `keploy/` directory:
+
+```text
+keploy/
+└── test-set-0/
+    ├── mocks.yaml
+    └── tests/
+        ├── test-1.yaml
+        └── test-2.yaml
+```
+
+---
+
+## Step 5 — Inspect What Keploy Generated
+
+Let's examine the generated test artifacts. Keploy records human-readable, Git-friendly YAML.
+
+### The Recorded HTTP Test Case (`test-1.yaml`)
+
+```yaml
+version: api.keploy.io/v1beta1
+kind: Http
+name: test-1
+spec:
+    metadata: {}
+    req:
+        method: POST
+        url: http://localhost:8080/url
+        header:
+            Content-Type: application/json
+            Host: localhost:8080
+        body: |-
+            {
+              "url": "https://google.com"
+            }
+    resp:
+        status_code: 200
+        header:
+            Content-Type: application/json; charset=utf-8
+        body: '{"ts":1718943885198315028,"url":"http://localhost:8080/Lhr4BWAi"}'
+        status_message: OK
+    assertions:
+        noise:
+            body.ts: []
+            header.Date: []
+```
+
+### The Recorded Database Mock (`mocks.yaml`)
+
+Look inside `mocks.yaml`. You will notice raw BSON protocol packets:
+
+```yaml
+version: api.keploy.io/v1beta1
+kind: Mongo
+name: mock-1
+spec:
+    metadata:
+        operation: 'update url-shortener'
+    requests:
+        - header: { opcode: 2013, requestId: 5 }
+          message:
+            query: '{"_id":"Lhr4BWAi"}'
+            update: '{"url":"https://google.com", "created": 1718943885178}'
+    responses:
+        - header: { opcode: 2013, responseTo: 5 }
+          message: { nModified: 1, ok: 1.0 }
+```
+
+Keploy recorded the **exact wire protocol handshake** and query exchange between the Go MongoDB driver and the MongoDB server.
+
+---
+
+## Step 6 — Calibrate Noise (Handling Timestamps)
+
+Notice line 7 in the response body: `"ts": 1718943885198315028`.
+
+Every time someone creates a shortened URL, Go computes `time.Now().UnixNano()`. On test replay, `time.Now()` will inevitably yield a different timestamp. Without calibration, this would trigger a false diff failure!
+
+<Callout type="warning" title="The Non-Deterministic Field Dilemma">
+In testing, fields like timestamps, UUIDs, and randomized IDs change on every execution. Keploy provides a `noise` assertion block to ignore these volatile fields while strictly validating everything else (status codes, headers, and remaining body attributes).
+</Callout>
+
+In `keploy/test-set-0/tests/test-1.yaml`, ensure `body.ts` and `header.Date` are declared under `assertions.noise`:
+
+```yaml
+assertions:
+  noise:
+    body.ts: []
+    header.Date: []
+```
+
+---
+
+## Step 7 — Run the Generated Tests (Offline Replay!)
+
+Now for the ultimate test of Keploy's value proposition: **we will stop the MongoDB container entirely**.
+
+<Step 
+  number="05" 
+  title="Stop MongoDB to prove zero-dependency isolation"
+  badge="Chaos Testing"
+  command="docker stop mongoDb"
+  rationale="Stopping the database proves that our test suite runs 100% offline, relying solely on Keploy's network-level mocks."
+  expectedOutput="mongoDb"
+/>
+
+Execute the test suite with `keploy test`:
+
+<Step 
+  number="06" 
+  title="Replay test cases against the Go application"
+  badge="Test Execution"
+  command="keploy test -c &quot;docker run -p 8080:8080 --net keploy-network --rm --name MongoApp gin-app:1.0&quot; --container-name &quot;MongoApp&quot; --delay 10 --useLocalMock"
+  rationale="Keploy boots the Go container, feeds the recorded HTTP calls into :8080, and intercepts outbound MongoDB connections to serve the mock cassettes."
+  expectedOutput="🐰 Keploy: Test Sets to be Replayed: ['test-set-0']
+🐰 Keploy: Starting test-run-0...
+--------------------------------------------------------------------
+test-set-0: [test-1] PASSED (POST /url -> 200 OK)
+test-set-0: [test-2] PASSED (GET /Lhr4BWAi -> 303 See Other)
+--------------------------------------------------------------------
+Test Run Summary:
+Total tests: 2 | Passed: 2 | Failed: 0
+Status: PASSED"
+/>
+
+All test cases passed in milliseconds—with MongoDB completely offline!
+
+---
+
+## What Just Happened?
+
+Let's break down the technical machinery that made this possible:
+
+```text
+RECORD PHASE:
+Client Request  ────────> [ Keploy Proxy ] ────────> Go Application
+                                                          │ (Dial mongoDb:27017)
+                                                          ▼
+YAML Test Cases <──────── [ Keploy Proxy ] <──────── Real MongoDB
+& Mocks Saved
+
+REPLAY PHASE:
+Recorded Request ───────> [ Keploy Runner ] ───────> Go Application
+                                                          │ (Dial mongoDb:27017)
+                                                          ▼
+Pass / Fail Diff <─────── [ Keploy Runner ] <─────── [ Keploy Virtual Mocks ]
+                                                     (Real MongoDB is DEAD!)
+```
+
+1.  **Network Socket Interception:** Keploy redirected the Go application's outbound TCP socket for `mongoDb:27017` into its internal virtual proxy.
+2.  **Wire Protocol Decoding:** Keploy understands the native MongoDB binary protocol (OP_MSG / OP_QUERY). It parsed the BSON payloads into clear YAML documents.
+3.  **Strict Mock Matching:** On replay, when the Go driver sent an authentication probe and query for `_id = &quot;Lhr4BWAi&quot;`, Keploy matched the query against `mocks.yaml` and returned the stored BSON response packet.
+4.  **Schema Validation & Diffing:** Keploy evaluated the HTTP response, ignored the noise keys (`body.ts`, `header.Date`), and confirmed that the status codes and destination redirect matched expectations.
+
+---
+
+## Troubleshooting Guide
+
+<Troubleshooting />
+
+---
+
+## Key Takeaways
+
+By working through this quickstart, you have unlocked a modern testing workflow:
+
+*   **Zero Test Code:** You generated comprehensive API test coverage without writing mock structs, mock interfaces, or assertions in Go.
+*   **True Database Realism:** You recorded genuine MongoDB wire interactions instead of synthetic JSON guesses.
+*   **Blazing Fast CI Runs:** Because dependencies are mocked at the network layer, your CI pipeline doesn't need to spin up heavy MongoDB, Redis, or Kafka containers.
+*   **Effortless Noise Calibration:** Dynamic timestamps and headers are isolated with declarative noise configs, preventing flaky tests.
+
+---
+
+## Next Steps
+
+Take your Keploy expertise further with these official resources:
+
+*   [Official Keploy Documentation](https://keploy.io/docs)
+*   [Keploy GitHub Repository](https://github.com/keploy/keploy)
+*   [Go Integration Guide](https://keploy.io/docs/quickstart/quickstart-go/)
+*   [Keploy Slack Community](https://join.slack.com/t/keploy/shared_invite/zt-2cxu3w9h3-s649a~m7BqI0F5W5W9qZ9g)
