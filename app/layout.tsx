@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     "DevRel",
     "Integration Testing",
   ],
-  authors: [{ name: "Daksh Dureja", url: "https://keploy.io" }],
+  authors: [{ name: "Navya Pathak", url: "https://github.com/navyapathak" }],
   openGraph: {
     title: "Getting Started with Keploy and Go | Developer Tutorial",
     description:
