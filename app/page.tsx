@@ -150,7 +150,7 @@ export default async function Page() {
                 </span>
                 <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
                   <a
-                    href="https://github.com/keploy/keploy"
+                    href="https://github.com/navyapathak/keploy-go-quickstart"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 hover:text-zinc-900 dark:hover:text-white transition-colors"

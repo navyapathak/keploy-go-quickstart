@@ -43,13 +43,22 @@ export function Footer() {
             <span>Documentation</span>
           </a>
           <a
-            href="https://github.com/keploy/keploy"
+            href="https://github.com/navyapathak/keploy-go-quickstart"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-1"
           >
             <GithubIcon className="w-3.5 h-3.5" />
-            <span>Keploy GitHub</span>
+            <span>GitHub Repository</span>
+          </a>
+          <a
+            href="https://github.com/navyapathak"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors flex items-center gap-1"
+          >
+            <GithubIcon className="w-3.5 h-3.5" />
+            <span>@navyapathak</span>
           </a>
           <a
             href="https://github.com/keploy/samples-go"

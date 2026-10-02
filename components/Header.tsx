@@ -89,7 +89,7 @@ export function Header() {
               <ArrowUpRight className="w-3 h-3 opacity-60" />
             </a>
             <a
-              href="https://github.com/keploy/keploy"
+              href="https://github.com/navyapathak/keploy-go-quickstart"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
@@ -156,7 +156,7 @@ export function Header() {
                 <BookOpen className="w-4 h-4" /> Docs
               </a>
               <a
-                href="https://github.com/keploy/keploy"
+                href="https://github.com/navyapathak/keploy-go-quickstart"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-zinc-600 dark:text-zinc-400"
