@@ -8,8 +8,8 @@ A production-grade developer documentation experience and hands-on guide for int
 
 ## Live Links
 
-*   **Live Documentation Site**: [Deployed on Vercel](https://keploy-go-quickstart.vercel.app) *(or your deployed Vercel URL)*
-*   **Source Code Repository**: [GitHub Repository](https://github.com/dakshdureja/keploy-go-quickstart)
+*   **Live Documentation Site**: [https://keploy-flame.vercel.app](https://keploy-flame.vercel.app)
+*   **Source Code Repository**: [https://github.com/dakshdureja/keploy-go-quickstart](https://github.com/dakshdureja/keploy-go-quickstart)
 
 ---
 
